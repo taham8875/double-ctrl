@@ -1,0 +1,159 @@
+/* Double Ctrl - Image Magnifier Overlay */
+
+#dblctrl-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+#dblctrl-overlay.dblctrl-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Backdrop */
+#dblctrl-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+/* Toolbar */
+#dblctrl-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(30, 30, 30, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 6px 12px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 1;
+  user-select: none;
+}
+
+#dblctrl-toolbar button {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  font-size: 16px;
+  transition: background 0.15s, color 0.15s;
+  box-sizing: border-box;
+}
+
+#dblctrl-toolbar button:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+#dblctrl-toolbar button:active {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+#dblctrl-toolbar button svg {
+  pointer-events: none;
+}
+
+/* Separator */
+.dblctrl-separator {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 4px;
+}
+
+/* Zoom controls */
+#dblctrl-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#dblctrl-zoom-level {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 500;
+  min-width: 36px;
+  text-align: center;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Action buttons */
+#dblctrl-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Image wrapper */
+#dblctrl-image-wrapper {
+  position: relative;
+  max-width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+#dblctrl-image {
+  max-width: 90vw;
+  max-height: 85vh;
+  object-fit: contain;
+  transform-origin: center center;
+  transition: transform 0.15s ease-out;
+  user-select: none;
+  -webkit-user-drag: none;
+  border-radius: 2px;
+}
+
+/* Disable transition during pan for instant response */
+#dblctrl-image.dblctrl-panning {
+  transition: none !important;
+}
+
+/* Toast notification */
+.dblctrl-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  background: rgba(30, 30, 30, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 2147483647;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+.dblctrl-toast.dblctrl-toast-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
