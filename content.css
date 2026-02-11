@@ -107,12 +107,10 @@
 /* Image wrapper */
 #dblctrl-image-wrapper {
   position: relative;
-  max-width: 90vw;
-  max-height: 85vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  overflow: visible;
 }
 
 #dblctrl-image {

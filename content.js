@@ -11,7 +11,8 @@
   const MIN_IMAGE_SIZE = 20; // px - skip tiny images
   const ZOOM_LEVELS = [0.5, 1, 2, 4, 8];
 
-  let lastCtrlTime = 0;
+  let firstCtrlDown = 0;
+  let awaitSecondCtrl = false;
   let mouseX = 0;
   let mouseY = 0;
 
@@ -25,29 +26,51 @@
   let panStartY = 0;
 
   // ── (A) Double-Ctrl Detection ─────────────────────────────────────────
+  // Key event blocking is handled by page-blocker.js which runs in the
+  // page's MAIN world (declared in manifest.json). It checks for
+  // #dblctrl-overlay and #dblctrl-key-block DOM elements to decide
+  // whether to swallow keyboard events.
 
   document.addEventListener('mousemove', (e) => {
     mouseX = e.clientX;
     mouseY = e.clientY;
   });
 
-  document.addEventListener('keydown', (e) => {
-    // Close overlay on Escape
-    if (e.key === 'Escape' && overlayEl) {
-      closeOverlay();
-      return;
-    }
-
-    if (e.key !== 'Control' || e.repeat) return;
-
-    const now = Date.now();
-    if (now - lastCtrlTime < DOUBLE_CTRL_THRESHOLD) {
-      lastCtrlTime = 0;
-      handleDoubleCtrl();
-    } else {
-      lastCtrlTime = now;
+  // Watch for overlay removal by page-blocker.js (which runs in the
+  // page's MAIN world and handles Escape by removing the overlay DOM
+  // directly). When that happens, reset our internal state.
+  const domObserver = new MutationObserver(() => {
+    if (overlayEl && !overlayEl.parentNode) {
+      overlayEl = null;
+      currentImageUrl = null;
     }
   });
+  domObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+  // Any scroll or non-Ctrl key resets the double-tap detection entirely.
+  // This prevents Ctrl+scroll (browser zoom) from triggering the overlay.
+  function resetCtrlDetection() { firstCtrlDown = 0; awaitSecondCtrl = false; }
+  document.addEventListener('wheel', resetCtrlDetection, true);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Control') { resetCtrlDetection(); return; }
+    if (e.repeat) return;
+
+    const now = Date.now();
+    if (awaitSecondCtrl && now - firstCtrlDown < DOUBLE_CTRL_THRESHOLD) {
+      resetCtrlDetection();
+      handleDoubleCtrl();
+    } else {
+      firstCtrlDown = now;
+      awaitSecondCtrl = false;
+    }
+  }, true);
+
+  document.addEventListener('keyup', (e) => {
+    if (e.key === 'Control' && firstCtrlDown > 0) {
+      awaitSecondCtrl = true;
+    }
+  }, true);
 
   // ── (B) Image Element Resolution ──────────────────────────────────────
 
@@ -62,39 +85,56 @@
 
   function resolveImageFromPoint(x, y) {
     // elementsFromPoint returns ALL elements at the coordinate,
-    // from topmost to bottommost. This catches images hidden under
-    // overlay divs (e.g. Telegram profile photos, WhatsApp image viewers).
+    // ordered front-to-back (topmost first). This is critical:
+    // a small image in front of a large banner should win.
     const elements = document.elementsFromPoint(x, y);
 
-    // Collect ALL candidate images from the entire element stack,
-    // then pick the best one. This is critical for apps like WhatsApp
-    // that nest images very deep and overlay them with control divs.
-    const candidates = []; // { url, score, el }
+    // ── Phase 1: Direct hits, front-to-back ──
+    // Check each element in stacking order. The first image we find
+    // is the one visually in front — exactly what the user sees and
+    // expects to magnify. Also check CSS background-image.
+    for (const el of elements) {
+      const url = extractUrl(el);
+      if (url) return url;
+
+      const bgUrl = extractBgUrl(el);
+      if (bgUrl) return bgUrl;
+    }
+
+    // ── Phase 2: Deep child search (fallback) ──
+    // If no direct hit, images may be buried inside child elements
+    // covered by overlay divs (WhatsApp, Telegram). Search children
+    // of each element, filtered to cursor position, scored by quality.
+    const candidates = [];
     const seen = new Set();
 
     for (const el of elements) {
-      collectCandidates(el, candidates, seen);
+      const imgs = el.querySelectorAll('img, picture, svg');
+      for (const child of imgs) {
+        const rect = child.getBoundingClientRect();
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+          addCandidate(child, candidates, seen);
+        }
+      }
     }
 
     if (candidates.length === 0) return null;
 
-    // Sort by score descending - highest score wins
     candidates.sort((a, b) => b.score - a.score);
     return candidates[0].url;
   }
 
-  function collectCandidates(el, candidates, seen) {
-    // 1. Check the element itself
-    addCandidate(el, candidates, seen);
+  function extractBgUrl(el) {
+    const bg = getComputedStyle(el).backgroundImage;
+    if (!bg || bg === 'none') return null;
 
-    // 2. Check CSS background-image on this element
-    addBgCandidate(el, candidates, seen);
+    const match = bg.match(/url\(["']?(.+?)["']?\)/);
+    if (!match) return null;
 
-    // 3. Search ALL descendant images (handles deep nesting)
-    const imgs = el.querySelectorAll('img, picture, svg');
-    for (const child of imgs) {
-      addCandidate(child, candidates, seen);
-    }
+    const rect = el.getBoundingClientRect();
+    if (rect.width < MIN_IMAGE_SIZE || rect.height < MIN_IMAGE_SIZE) return null;
+
+    return match[1];
   }
 
   function addCandidate(el, candidates, seen) {
@@ -119,33 +159,6 @@
     score += Math.min(naturalArea / 100, 5000);
 
     // Display area - bigger displayed images are more likely the target
-    score += Math.min(area / 10, 3000);
-
-    candidates.push({ url, score, el });
-  }
-
-  function addBgCandidate(el, candidates, seen) {
-    // Check CSS background-image
-    const bg = getComputedStyle(el).backgroundImage;
-    if (!bg || bg === 'none') return;
-
-    const match = bg.match(/url\(["']?(.+?)["']?\)/);
-    if (!match) return;
-
-    const url = match[1];
-    if (seen.has(url)) return;
-    seen.add(url);
-
-    const rect = el.getBoundingClientRect();
-    if (rect.width < MIN_IMAGE_SIZE || rect.height < MIN_IMAGE_SIZE) return;
-
-    const area = rect.width * rect.height;
-    let score = 0;
-
-    if (url.startsWith('blob:')) score += 10000;
-    else if (url.startsWith('http')) score += 5000;
-    else if (url.startsWith('data:')) score += 1000;
-
     score += Math.min(area / 10, 3000);
 
     candidates.push({ url, score, el });
@@ -244,7 +257,21 @@
   function closeOverlay() {
     if (!overlayEl) return;
 
+    // Place a temporary hidden marker in the DOM so the injected
+    // page-world script keeps blocking key events for 200ms after
+    // the overlay is removed. This prevents the keyup from Escape
+    // leaking to the web app.
+    const marker = document.createElement('div');
+    marker.id = 'dblctrl-key-block';
+    marker.style.display = 'none';
+    document.body.appendChild(marker);
+    setTimeout(() => marker.remove(), 200);
+
     const el = overlayEl;
+    overlayEl = null;
+    currentImageUrl = null;
+    document.body.style.overflow = '';
+
     el.classList.remove('dblctrl-visible');
 
     el.addEventListener('transitionend', () => {
@@ -255,10 +282,6 @@
     setTimeout(() => {
       if (el.parentNode) el.remove();
     }, 300);
-
-    overlayEl = null;
-    currentImageUrl = null;
-    document.body.style.overflow = '';
   }
 
   function buildOverlayDOM(imageUrl) {
